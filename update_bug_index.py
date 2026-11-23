@@ -6,7 +6,7 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parent
 START = "<!-- BEGIN BUG INDEX -->"
 END = "<!-- END BUG INDEX -->"
-BUG_HEADING = re.compile(r"(?m)^#{2,6} (BUG-\d+) · (P[0-3]) · (.+)$")
+BUG_HEADING = re.compile(r"(?m)^#{2,6} ((BUG-\d+) [-·] (P[0-3]) [-·] (.+))$")
 
 
 def github_anchor(heading):
@@ -21,12 +21,12 @@ def render_index(report):
     bugs = []
     seen_ids = set()
     for match in BUG_HEADING.finditer(report):
-        bug_id, priority, title = match.groups()
+        heading, bug_id, priority, title = match.groups()
         if bug_id in seen_ids:
             raise ValueError(f"Повторяющийся ID в BUGS.md: {bug_id}")
         seen_ids.add(bug_id)
         title = title.strip()
-        anchor = github_anchor(f"{bug_id} · {priority} · {title}")
+        anchor = github_anchor(heading.rstrip())
         link = f"[{bug_id}](BUGS.md#{anchor})"
         bugs.append((priority, link, title))
 
@@ -40,11 +40,11 @@ def render_index(report):
         lines.append(f"| {priority} | {link} | {table_title} |")
 
     lines.extend(["", "<details>", "<summary>По порядку находок</summary>", ""])
-    lines.extend(f"- {link} · {priority} · {title}" for priority, link, title in bugs)
-    lines.extend(["", "</details>", "", "<details>", "<summary>По группам P0–P3</summary>"])
+    lines.extend(f"- {link} - {priority} - {title}" for priority, link, title in bugs)
+    lines.extend(["", "</details>", "", "<details>", "<summary>По группам P0-P3</summary>"])
     for priority in sorted({bug[0] for bug in bugs}):
         lines.extend(["", f"**{priority}**", ""])
-        lines.extend(f"- {link} — {title}" for value, link, title in by_priority if value == priority)
+        lines.extend(f"- {link} - {title}" for value, link, title in by_priority if value == priority)
     lines.extend(["", "</details>"])
     return "\n".join(lines)
 
