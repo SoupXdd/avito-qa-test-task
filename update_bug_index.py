@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parent
 START = "<!-- BEGIN BUG INDEX -->"
 END = "<!-- END BUG INDEX -->"
 BUG_HEADING = re.compile(r"(?m)^#{2,6} ((BUG-\d+) [-·] (P[0-3]) [-·] (.+))$")
+SCREEN_FIELD = re.compile(r"(?m)^\*\*Экран\*\* - (.+)$")
+SCREENS = ("Заполненная форма редактирования", "Карточка продавца", "Карточка товара")
 
 
 def github_anchor(heading):
@@ -20,7 +22,9 @@ def github_anchor(heading):
 def render_index(report):
     bugs = []
     seen_ids = set()
-    for match in BUG_HEADING.finditer(report):
+    bugs_by_screen = {screen.casefold(): [] for screen in SCREENS}
+    headings = list(BUG_HEADING.finditer(report))
+    for index, match in enumerate(headings):
         heading, bug_id, priority, title = match.groups()
         if bug_id in seen_ids:
             raise ValueError(f"Повторяющийся ID в BUGS.md: {bug_id}")
@@ -29,6 +33,14 @@ def render_index(report):
         anchor = github_anchor(heading.rstrip())
         link = f"[{bug_id}](BUGS.md#{anchor})"
         bugs.append((priority, link, title))
+
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(report)
+        screen_field = SCREEN_FIELD.search(report, match.end(), end)
+        if screen_field:
+            for screen in screen_field[1].split(" и "):
+                group = bugs_by_screen.get(screen.strip().rstrip(".").casefold())
+                if group is not None:
+                    group.append((priority, link, title))
 
     if not bugs:
         return "В отчёте пока нет дефектов."
@@ -41,11 +53,15 @@ def render_index(report):
 
     lines.extend(["", "<details>", "<summary>По порядку находок</summary>", ""])
     lines.extend(f"- {link} - {priority} - {title}" for priority, link, title in bugs)
-    lines.extend(["", "</details>", "", "<details>", "<summary>По группам P0-P3</summary>"])
-    for priority in sorted({bug[0] for bug in bugs}):
-        lines.extend(["", f"**{priority}**", ""])
-        lines.extend(f"- {link} - {title}" for value, link, title in by_priority if value == priority)
     lines.extend(["", "</details>"])
+    if any(bugs_by_screen.values()):
+        lines.extend(["", "<details>", "<summary>По экранам</summary>"])
+        for screen in SCREENS:
+            screen_bugs = bugs_by_screen[screen.casefold()]
+            if screen_bugs:
+                lines.extend(["", f"**{screen}**", ""])
+                lines.extend(f"- {link} - {priority} - {title}" for priority, link, title in screen_bugs)
+        lines.extend(["", "</details>"])
     return "\n".join(lines)
 
 
