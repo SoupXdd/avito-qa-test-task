@@ -1,0 +1,39 @@
+name: Update bug index
+
+on:
+  push:
+    paths:
+      - BUGS.md
+      - README.md
+      - update_bug_index.py
+      - .github/workflows/update-bug-index.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: update-bug-index-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Generate README index
+        run: python3 update_bug_index.py
+      - name: Publish README change
+        run: |
+          if git diff --quiet -- README.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'Update bug index'
+          git push
