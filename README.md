@@ -1,6 +1,4 @@
-![Офисные гремлины кланяются логотипу Авито](pictures/avito-office-goblins.gif)
-
-# Avito QA Test Task
+# <img src="pictures/avito-mark.png" width="28" height="28" alt=""> Avito QA Test Task
 
 Тестовое задание на стажировку QA в Авито, осень 2026
 
