@@ -1,0 +1,52 @@
+plugins {
+    id 'java'
+    id 'io.qameta.allure' version '4.3.1'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'io.rest-assured:rest-assured:6.3.0'
+    testImplementation 'com.codeborne:selenide:7.19.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+allure {
+    version = '2.42.1'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    systemProperty 'selenide.headless', providers.systemProperty('selenide.headless').getOrElse('true')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('apiTest', Test) {
+    group = 'verification'
+    description = 'Runs the API tests.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching 'qa.api.*'
+    }
+}
+
+tasks.register('uiTest', Test) {
+    group = 'verification'
+    description = 'Runs the browser tests.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching 'qa.ui.*'
+    }
+}
