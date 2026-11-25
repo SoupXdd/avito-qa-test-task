@@ -17,6 +17,7 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testImplementation 'io.rest-assured:rest-assured:6.3.0'
+    testRuntimeOnly 'tools.jackson.core:jackson-databind:3.2.3'
     testImplementation 'com.codeborne:selenide:7.19.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
