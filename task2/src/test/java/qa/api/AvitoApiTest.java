@@ -12,6 +12,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -26,7 +27,10 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static qa.api.AuthClient.authorize;
 import static qa.api.AuthClient.authorizeAndGetToken;
 import static qa.api.AuthClient.createSeller;
@@ -46,6 +50,9 @@ import static qa.api.TestCredentials.DEFAULT_PASSWORD;
 public class AvitoApiTest {
 
     private static final String OTHER_PASSWORD = "another_strong_password";
+    private static final String REJECTION_FIXTURE_ITEM_NAME = "QA стол для проверки";
+    private static final Set<String> ITEM_FIELDS = Set.of("id", "sellerId", "name", "price", "statistics", "createdAt");
+    private static final Set<String> STATISTICS_FIELDS = Set.of("likes", "viewCount", "contacts");
 
     @Test
     void registerReturnCreatedUser() {
@@ -143,6 +150,49 @@ public class AvitoApiTest {
             cleanup.track(UUID.fromString(itemId));
             checkSavedItem(seller, itemId, item);
         }
+    }
+
+    @Test
+    void shouldCompleteItemLifecycle() {
+        SellerSession seller = createSeller();
+        CreateItemRequest item = testItem(seller, "QA item lifecycle " + seller.id());
+
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createItem(seller, item);
+            UUID itemUuid = UUID.fromString(itemId);
+            cleanup.track(itemUuid);
+
+            checkSavedItem(seller, itemId, item);
+            checkSavedStatistics(getStatistics(requestAs(seller), 1, itemId), item.statistics(), true);
+            checkSavedStatistics(getStatistics(requestAs(seller), 2, itemId), item.statistics(), false);
+
+            deleteItem(requestAs(seller), itemId).statusCode(200);
+            cleanup.markDeleted(itemUuid);
+            checkItemLookupRejected(getItem(requestAs(seller), itemId), 404);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401})
+    void shouldAcceptRejectedCreationFixtureWithoutNewItem(int status) {
+        checkRejectedCreationFixture(status, List.of("Старое объявление"), List.of());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {200, 500})
+    void shouldFailRejectedCreationFixtureOnSuccessOrServerError(int status) {
+        assertThrows(AssertionError.class, () -> checkRejectedCreationFixture(status, List.of(), List.of()));
+    }
+
+    @Test
+    void shouldFailRejectedCreationFixtureWhenItemAppears() {
+        List<String> listWithItem = List.of(REJECTION_FIXTURE_ITEM_NAME);
+
+        assertAll(
+                () -> assertThrows(AssertionError.class,
+                        () -> checkRejectedCreationFixture(400, listWithItem, List.of())),
+                () -> assertThrows(AssertionError.class,
+                        () -> checkRejectedCreationFixture(400, List.of(), listWithItem)));
     }
 
     @Test
@@ -399,8 +449,9 @@ public class AvitoApiTest {
                         .body("id", containsInAnyOrder(firstId, secondId));
 
                 deleteItem(requestAs(seller), firstId).statusCode(200);
-                getItem(requestAs(seller), firstId).statusCode(404);
-                firstDeleted = true;
+                ValidatableResponse deletedItem = getItem(requestAs(seller), firstId);
+                firstDeleted = deletedItem.extract().statusCode() == 404;
+                checkItemLookupRejected(deletedItem, 404);
                 checkSavedItem(seller, secondId, secondItem);
                 getSellerItems(requestAs(seller), seller.id())
                         .statusCode(200)
@@ -415,7 +466,7 @@ public class AvitoApiTest {
         }
     }
 
-    @Disabled("API-21: confirm whether statistics should return 404 immediately after deletion")
+    @Disabled("API-21: statistics returned 200 after deletion; expected behavior is unspecified")
     @Test
     void shouldReturnNotFoundForDeletedItemStatistics() {
         SellerSession seller = createSeller();
@@ -525,17 +576,20 @@ public class AvitoApiTest {
         }
     }
 
+    private void checkRejectedCreationFixture(int status, List<String> firstList, List<String> secondList) {
+        assertAll("Результат создания объявления",
+                () -> assertTrue(status >= 400 && status < 500, "Ожидался отказ, получен HTTP " + status),
+                () -> assertFalse(firstList.contains(REJECTION_FIXTURE_ITEM_NAME), "Запись появилась в первом списке"),
+                () -> assertFalse(secondList.contains(REJECTION_FIXTURE_ITEM_NAME), "Запись появилась во втором списке"));
+    }
+
     private void checkMissingStatistics(ValidatableResponse response) {
         checkStatisticsRejected(response, 404);
     }
 
     private void checkStatisticsRejected(ValidatableResponse response, int expectedStatus) {
-        response.statusCode(expectedStatus)
-                .body(not(anyOf(
-                        containsString("\"likes\""),
-                        containsString("\"viewCount\""),
-                        containsString("\"contacts\"")
-                )));
+        response.statusCode(expectedStatus);
+        ApiErrorBody.checkNoFields(response, STATISTICS_FIELDS);
     }
 
     private RequestSpecification requestWithTestToken(String token) {
@@ -579,9 +633,8 @@ public class AvitoApiTest {
     }
 
     private void checkItemLookupRejected(ValidatableResponse response, int expectedStatus) {
-        response.statusCode(expectedStatus)
-                .body(not(containsString("\"name\"")));
-        checkItemFieldsAbsent(response);
+        response.statusCode(expectedStatus);
+        ApiErrorBody.checkNoFields(response, ITEM_FIELDS);
     }
 
     private void checkItemAccessDenied(ValidatableResponse response, String itemId, String itemName) {
@@ -590,16 +643,7 @@ public class AvitoApiTest {
                         containsString(itemId),
                         containsString(itemName)
                 )));
-        checkItemFieldsAbsent(response);
-    }
-
-    private void checkItemFieldsAbsent(ValidatableResponse response) {
-        response.body(not(anyOf(
-                containsString("\"sellerId\""),
-                containsString("\"price\""),
-                containsString("\"statistics\""),
-                containsString("\"createdAt\"")
-        )));
+        ApiErrorBody.checkNoFields(response, ITEM_FIELDS);
     }
 
     private void checkInvalidRegistration(Object body) {
@@ -615,11 +659,7 @@ public class AvitoApiTest {
         String itemId = createItem(seller, item);
 
         try {
-            getStatistics(requestWithTestToken(token), version, itemId)
-                    .statusCode(401)
-                    .body(not(containsString("\"likes\"")))
-                    .body(not(containsString("\"viewCount\"")))
-                    .body(not(containsString("\"contacts\"")));
+            checkStatisticsRejected(getStatistics(requestWithTestToken(token), version, itemId), 401);
         } finally {
             deleteItem(requestAs(seller), itemId).statusCode(200);
         }

@@ -1,0 +1,82 @@
+name: API Tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/api-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: task2
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            task2/*.gradle
+            task2/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Run API tests
+        id: tests
+        run: ./gradlew --no-daemon apiTest
+
+      - name: Build Allure report
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        run: |
+          ./gradlew --no-daemon allureReport -x apiTest -x test -x uiTest
+          test -s build/reports/allure-report/allureReport/widgets/summary.json
+          ./build/allure/commandline/bin/allure generate --single-file --output build/reports/allure-single build/allure-results
+          test -s build/reports/allure-single/index.html
+
+      - name: Upload Allure and Gradle results
+        id: reports
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: api-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            task2/build/reports/allure-single/index.html
+            task2/build/reports/tests/apiTest/
+            task2/build/test-results/apiTest/*.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write run summary
+        if: ${{ !cancelled() }}
+        env:
+          TEST_STATUS: ${{ steps.tests.outcome }}
+          ARTIFACT_URL: ${{ steps.reports.outputs.artifact-url }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = Path("build/reports/allure-report/allureReport/widgets/summary.json")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              print("### API tests", file=output)
+              print(f"\nGradle result: {os.environ['TEST_STATUS']}", file=output)
+              if summary.is_file():
+                  counts = json.loads(summary.read_text(encoding="utf-8"))["statistic"]
+                  print(f"\n{counts['total']} total, {counts['passed']} passed, "
+                        f"{counts['failed']} failed, {counts['broken']} broken, "
+                        f"{counts['skipped']} skipped.", file=output)
+              if link := os.environ.get("ARTIFACT_URL"):
+                  print(f"\n[Download Allure and Gradle results]({link})", file=output)
+          PY

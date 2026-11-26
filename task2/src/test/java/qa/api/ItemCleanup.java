@@ -30,6 +30,10 @@ final class ItemCleanup implements AutoCloseable {
         itemIds.add(itemId);
     }
 
+    void markDeleted(UUID itemId) {
+        itemIds.remove(itemId);
+    }
+
     void findByNameOnClose(String itemName) {
         itemNameToFind = itemName;
     }
