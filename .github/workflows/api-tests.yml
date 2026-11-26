@@ -5,6 +5,12 @@ on:
     branches: [master]
     paths:
       - .github/workflows/api-tests.yml
+      - task2/src/test/java/qa/api/**
+      - task2/config/**
+      - task2/*.gradle
+      - task2/gradle/**
+      - task2/gradlew
+      - task2/gradlew.bat
   workflow_dispatch:
 
 permissions:
@@ -66,11 +72,14 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          from datetime import datetime, timezone
           from pathlib import Path
 
           summary = Path("build/reports/allure-report/allureReport/widgets/summary.json")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
               print("### API tests", file=output)
+              print(f"\nCommit: `{os.environ['GITHUB_SHA']}`", file=output)
+              print(f"Report date (UTC): {datetime.now(timezone.utc).date()}", file=output)
               print(f"\nGradle result: {os.environ['TEST_STATUS']}", file=output)
               if summary.is_file():
                   counts = json.loads(summary.read_text(encoding="utf-8"))["statistic"]

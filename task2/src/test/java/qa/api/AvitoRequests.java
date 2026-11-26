@@ -26,9 +26,14 @@ final class AvitoRequests {
             .addFilter((request, response, chain) -> {
                 String step = request.getMethod() + " " + URI.create(request.getURI()).getPath();
                 return Allure.step(step, context -> {
-                    Response result = chain.next(request, response);
-                    context.parameter("HTTP status", result.statusCode());
-                    return result;
+                    try {
+                        Response result = chain.next(request, response);
+                        context.parameter("HTTP status", result.statusCode());
+                        return result;
+                    } catch (Exception failure) {
+                        context.parameter("Request error", failure.getClass().getSimpleName());
+                        throw failure;
+                    }
                 });
             })
             .build();

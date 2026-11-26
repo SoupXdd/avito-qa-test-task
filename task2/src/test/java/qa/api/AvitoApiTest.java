@@ -4,12 +4,11 @@ import io.restassured.response.ValidatableResponse;
 import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static qa.api.AuthClient.authorize;
 import static qa.api.AuthClient.authorizeAndGetToken;
 import static qa.api.AuthClient.createSeller;
@@ -47,6 +45,7 @@ import static qa.api.ItemClient.getStatistics;
 import static qa.api.ItemClient.postItem;
 import static qa.api.TestCredentials.DEFAULT_PASSWORD;
 
+@ExtendWith(ApiFailureAttachment.class)
 public class AvitoApiTest {
 
     private static final String OTHER_PASSWORD = "another_strong_password";
@@ -146,8 +145,7 @@ public class AvitoApiTest {
         CreateItemRequest item = testItem(seller, "QA стол " + seller.id());
 
         try (ItemCleanup cleanup = cleanupFor(seller)) {
-            String itemId = createItem(seller, item);
-            cleanup.track(UUID.fromString(itemId));
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkSavedItem(seller, itemId, item);
         }
     }
@@ -157,10 +155,9 @@ public class AvitoApiTest {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA item lifecycle " + seller.id());
 
-        try (ItemCleanup cleanup = cleanupFor(seller)) {
-            String itemId = createItem(seller, item);
+        try (ItemCleanup cleanup = cleanupFor(seller, true)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             UUID itemUuid = UUID.fromString(itemId);
-            cleanup.track(itemUuid);
 
             checkSavedItem(seller, itemId, item);
             checkSavedStatistics(getStatistics(requestAs(seller), 1, itemId), item.statistics(), true);
@@ -172,27 +169,26 @@ public class AvitoApiTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {400, 401})
-    void shouldAcceptRejectedCreationFixtureWithoutNewItem(int status) {
-        checkRejectedCreationFixture(status, List.of("Старое объявление"), List.of());
+    @Test
+    void shouldAcceptApi11FixtureWithBadRequestAndNoNewItem() {
+        checkApi11Fixture(400, List.of("Старое объявление"), List.of());
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {200, 500})
-    void shouldFailRejectedCreationFixtureOnSuccessOrServerError(int status) {
-        assertThrows(AssertionError.class, () -> checkRejectedCreationFixture(status, List.of(), List.of()));
+    @ValueSource(ints = {200, 401, 403, 500})
+    void shouldRejectApi11FixtureWithUnexpectedStatus(int status) {
+        assertThrows(AssertionError.class, () -> checkApi11Fixture(status, List.of(), List.of()));
     }
 
     @Test
-    void shouldFailRejectedCreationFixtureWhenItemAppears() {
+    void shouldRejectApi11FixtureWhenItemAppears() {
         List<String> listWithItem = List.of(REJECTION_FIXTURE_ITEM_NAME);
 
         assertAll(
                 () -> assertThrows(AssertionError.class,
-                        () -> checkRejectedCreationFixture(400, listWithItem, List.of())),
+                        () -> checkApi11Fixture(400, listWithItem, List.of())),
                 () -> assertThrows(AssertionError.class,
-                        () -> checkRejectedCreationFixture(400, List.of(), listWithItem)));
+                        () -> checkApi11Fixture(400, List.of(), listWithItem)));
     }
 
     @Test
@@ -201,15 +197,10 @@ public class AvitoApiTest {
         CreateItemRequest item = testItem(seller, "QA identical item " + seller.id());
 
         try (ItemCleanup cleanup = cleanupFor(seller)) {
-            String firstId = createItem(seller, item);
-            UUID firstUuid = UUID.fromString(firstId);
-            cleanup.track(firstUuid);
+            String firstId = createTrackedItem(cleanup, seller, item);
+            String secondId = createTrackedItem(cleanup, seller, item);
 
-            String secondId = createItem(seller, item);
-            UUID secondUuid = UUID.fromString(secondId);
-            cleanup.track(secondUuid);
-
-            assertNotEquals(firstUuid, secondUuid,
+            assertNotEquals(UUID.fromString(firstId), UUID.fromString(secondId),
                     "Identical requests should create items with different UUIDs");
             checkSavedItem(seller, firstId, item);
             checkSavedItem(seller, secondId, item);
@@ -223,18 +214,12 @@ public class AvitoApiTest {
         String itemName = "QA same name " + firstSeller.id();
         CreateItemRequest firstItem = testItem(firstSeller, itemName);
         CreateItemRequest secondItem = testItem(secondSeller, itemName);
-        Map<UUID, SellerSession> createdItems = new LinkedHashMap<>();
+        try (ItemCleanup firstCleanup = cleanupFor(firstSeller);
+             ItemCleanup secondCleanup = cleanupFor(secondSeller)) {
+            String firstId = createTrackedItem(firstCleanup, firstSeller, firstItem);
+            String secondId = createTrackedItem(secondCleanup, secondSeller, secondItem);
 
-        try {
-            String firstId = createItem(firstSeller, firstItem);
-            UUID firstUuid = UUID.fromString(firstId);
-            createdItems.put(firstUuid, firstSeller);
-
-            String secondId = createItem(secondSeller, secondItem);
-            UUID secondUuid = UUID.fromString(secondId);
-            createdItems.putIfAbsent(secondUuid, secondSeller);
-
-            assertNotEquals(firstUuid, secondUuid, "Each seller should have a separate item");
+            assertNotEquals(UUID.fromString(firstId), UUID.fromString(secondId), "Each seller should have a separate item");
             checkSavedItem(firstSeller, firstId, firstItem);
             checkSavedItem(secondSeller, secondId, secondItem);
             getSellerItems(requestAs(firstSeller), firstSeller.id())
@@ -243,10 +228,6 @@ public class AvitoApiTest {
             getSellerItems(requestAs(secondSeller), secondSeller.id())
                     .statusCode(200)
                     .body("id", equalTo(List.of(secondId)));
-        } finally {
-            assertAll("Delete both sellers' test items", createdItems.entrySet().stream()
-                    .<Executable>map(item -> () -> deleteItem(requestAs(item.getValue()), item.getKey().toString())
-                            .statusCode(200)));
         }
     }
 
@@ -258,11 +239,17 @@ public class AvitoApiTest {
         checkItemLookupRejected(getItem(requestAs(seller), missingId), 404);
     }
 
-    @Test
-    void shouldRejectItemLookupWithMalformedUuid() {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "not-a-uuid",
+            "123e4567-e89b-12d3-a456-42661417400",
+            "123e4567-e89b-12d3-a456-4266141740000",
+            "123e4567-e89b-12d3-a456-42661417400g"
+    })
+    void shouldRejectItemLookupWithMalformedUuid(String malformedUuid) {
         SellerSession seller = createSeller();
 
-        checkItemLookupRejected(getItem(requestAs(seller), "not-a-uuid"), 400);
+        checkItemLookupRejected(getItem(requestAs(seller), malformedUuid), 400);
     }
 
     @ParameterizedTest
@@ -289,36 +276,31 @@ public class AvitoApiTest {
     void shouldListOnlyItemsOfRequestedSeller() {
         SellerSession seller = createSeller();
         SellerSession otherSeller = createSeller();
-        Map<String, SellerSession> createdItems = new LinkedHashMap<>();
-
-        try {
-            String otherId = createItem(otherSeller, testItem(otherSeller, "QA other seller " + otherSeller.id()));
-            createdItems.put(otherId, otherSeller);
+        try (ItemCleanup cleanup = cleanupFor(seller);
+             ItemCleanup otherCleanup = cleanupFor(otherSeller)) {
+            String otherId = createTrackedItem(otherCleanup, otherSeller,
+                    testItem(otherSeller, "QA other seller " + otherSeller.id()));
 
             getSellerItems(requestAs(seller), seller.id())
                     .statusCode(200)
                     .body("$", equalTo(List.of()));
 
-            String firstId = createItem(seller, testItem(seller, "QA first list item " + seller.id()));
-            createdItems.putIfAbsent(firstId, seller);
+            String firstId = createTrackedItem(cleanup, seller,
+                    testItem(seller, "QA first list item " + seller.id()));
             getSellerItems(requestAs(seller), seller.id())
                     .statusCode(200)
                     .body("$", instanceOf(List.class))
                     .body("id", equalTo(List.of(firstId)))
                     .body("id", not(hasItem(otherId)));
 
-            String secondId = createItem(seller, testItem(seller, "QA second list item " + seller.id()));
-            createdItems.putIfAbsent(secondId, seller);
+            String secondId = createTrackedItem(cleanup, seller,
+                    testItem(seller, "QA second list item " + seller.id()));
             assertNotEquals(firstId, secondId, "The seller should have two distinct items");
             getSellerItems(requestAs(seller), seller.id())
                     .statusCode(200)
                     .body("$", instanceOf(List.class))
                     .body("id", containsInAnyOrder(firstId, secondId))
                     .body("id", not(hasItem(otherId)));
-        } finally {
-            assertAll("Delete items created by API-16", createdItems.entrySet().stream()
-                    .<Executable>map(item -> () -> deleteItem(requestAs(item.getValue()), item.getKey())
-                            .statusCode(200)));
         }
     }
 
@@ -345,12 +327,10 @@ public class AvitoApiTest {
     void shouldRejectItemReadingWithoutValidToken(String token) {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA item " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkItemAccessDenied(getItem(requestWithTestToken(token), itemId), itemId, item.name());
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 
@@ -360,12 +340,10 @@ public class AvitoApiTest {
     void shouldRejectSellerItemsReadingWithoutValidToken(String token) {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA item " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkItemAccessDenied(getSellerItems(requestWithTestToken(token), seller.id()), itemId, item.name());
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 
@@ -389,14 +367,12 @@ public class AvitoApiTest {
     void shouldRejectItemDeletionWithoutValidToken(String token) {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA стол " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller, true)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             deleteItem(requestWithTestToken(token), itemId).statusCode(401);
 
             checkSavedItem(seller, itemId, item);
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(anyOf(equalTo(200), equalTo(404)));
         }
     }
 
@@ -404,13 +380,11 @@ public class AvitoApiTest {
     void shouldReturnSavedStatisticsInBothVersions() {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA statistics " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkSavedStatistics(getStatistics(requestAs(seller), 1, itemId), item.statistics(), true);
             checkSavedStatistics(getStatistics(requestAs(seller), 2, itemId), item.statistics(), false);
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 
@@ -436,33 +410,22 @@ public class AvitoApiTest {
         SellerSession seller = createSeller();
         CreateItemRequest firstItem = testItem(seller, "QA first item " + seller.id());
         CreateItemRequest secondItem = testItem(seller, "QA second item " + seller.id());
-        String firstId = createItem(seller, firstItem);
-        boolean firstDeleted = false;
 
-        try {
-            String secondId = createItem(seller, secondItem);
+        try (ItemCleanup cleanup = cleanupFor(seller, true)) {
+            String firstId = createTrackedItem(cleanup, seller, firstItem);
+            String secondId = createTrackedItem(cleanup, seller, secondItem);
+            checkSavedItem(seller, firstId, firstItem);
+            getSellerItems(requestAs(seller), seller.id())
+                    .statusCode(200)
+                    .body("id", containsInAnyOrder(firstId, secondId));
 
-            try {
-                checkSavedItem(seller, firstId, firstItem);
-                getSellerItems(requestAs(seller), seller.id())
-                        .statusCode(200)
-                        .body("id", containsInAnyOrder(firstId, secondId));
-
-                deleteItem(requestAs(seller), firstId).statusCode(200);
-                ValidatableResponse deletedItem = getItem(requestAs(seller), firstId);
-                firstDeleted = deletedItem.extract().statusCode() == 404;
-                checkItemLookupRejected(deletedItem, 404);
-                checkSavedItem(seller, secondId, secondItem);
-                getSellerItems(requestAs(seller), seller.id())
-                        .statusCode(200)
-                        .body("id", equalTo(List.of(secondId)));
-            } finally {
-                deleteItem(requestAs(seller), secondId).statusCode(anyOf(equalTo(200), equalTo(404)));
-            }
-        } finally {
-            if (!firstDeleted) {
-                deleteItem(requestAs(seller), firstId).statusCode(anyOf(equalTo(200), equalTo(404)));
-            }
+            deleteItem(requestAs(seller), firstId).statusCode(200);
+            checkItemLookupRejected(getItem(requestAs(seller), firstId), 404);
+            cleanup.markDeleted(UUID.fromString(firstId));
+            checkSavedItem(seller, secondId, secondItem);
+            getSellerItems(requestAs(seller), seller.id())
+                    .statusCode(200)
+                    .body("id", equalTo(List.of(secondId)));
         }
     }
 
@@ -471,48 +434,41 @@ public class AvitoApiTest {
     void shouldReturnNotFoundForDeletedItemStatistics() {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA deleted item statistics " + seller.id());
-        String itemId = createItem(seller, item);
-        boolean deleted = false;
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller, true)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             deleteItem(requestAs(seller), itemId).statusCode(200);
             getItem(requestAs(seller), itemId).statusCode(404);
-            deleted = true;
+            cleanup.markDeleted(UUID.fromString(itemId));
 
             assertAll("Statistics of a deleted item",
                     () -> assertEquals(404, getStatistics(requestAs(seller), 1, itemId)
                             .extract().statusCode(), "Statistics v1"),
                     () -> assertEquals(404, getStatistics(requestAs(seller), 2, itemId)
                             .extract().statusCode(), "Statistics v2"));
-        } finally {
-            if (!deleted) {
-                deleteItem(requestAs(seller), itemId).statusCode(anyOf(equalTo(200), equalTo(404)));
-            }
         }
     }
 
     @Test
     void shouldReturnNotFoundWhenDeletingMissingItems() {
         SellerSession seller = createSeller();
-        String deletedId = createItem(seller, testItem(seller, "QA repeat delete " + seller.id()));
+        CreateItemRequest item = testItem(seller, "QA repeat delete " + seller.id());
         String missingId = UUID.randomUUID().toString();
-        boolean deleted = false;
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller, true)) {
+            String deletedId = createTrackedItem(cleanup, seller, item);
             deleteItem(requestAs(seller), deletedId).statusCode(200);
             ValidatableResponse repeatedDeletion = deleteItem(requestAs(seller), deletedId);
             ValidatableResponse deletedItemLookup = getItem(requestAs(seller), deletedId);
-            deleted = deletedItemLookup.extract().statusCode() == 404;
+            if (deletedItemLookup.extract().statusCode() == 404) {
+                cleanup.markDeleted(UUID.fromString(deletedId));
+            }
 
             assertAll("Deleting missing items",
                     () -> repeatedDeletion.statusCode(404),
                     () -> checkItemLookupRejected(deletedItemLookup, 404),
                     () -> deleteItem(requestAs(seller), missingId).statusCode(404),
                     () -> checkItemLookupRejected(getItem(requestAs(seller), missingId), 404));
-        } finally {
-            if (!deleted) {
-                deleteItem(requestAs(seller), deletedId).statusCode(anyOf(equalTo(200), equalTo(404)));
-            }
         }
     }
 
@@ -527,12 +483,10 @@ public class AvitoApiTest {
     void shouldPreserveCyrillicAndQuotesInItemName() {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "Стол \"Дача\" " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkSavedItem(seller, itemId, item);
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 
@@ -540,9 +494,9 @@ public class AvitoApiTest {
     void shouldReturnSameItemOnRepeatedReads() {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA repeated reads " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             for (int attempt = 1; attempt <= 3; attempt++) {
                 getItem(requestAs(seller), itemId)
                         .statusCode(200)
@@ -553,15 +507,25 @@ public class AvitoApiTest {
                         .body("[0].name", equalTo(item.name()))
                         .body("[0].price", equalTo(item.price()));
             }
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 
+    private String createTrackedItem(ItemCleanup cleanup, SellerSession seller, CreateItemRequest item) {
+        cleanup.findByNameOnClose(item.name());
+        String itemId = createItem(seller, item);
+        cleanup.trackCreatedItem(UUID.fromString(itemId));
+        return itemId;
+    }
+
     private ItemCleanup cleanupFor(SellerSession seller) {
+        return cleanupFor(seller, false);
+    }
+
+    private ItemCleanup cleanupFor(SellerSession seller, boolean allowAlreadyDeleted) {
         return new ItemCleanup(seller.id(),
                 () -> getSellerItems(requestAs(seller), seller.id()).statusCode(200).extract().jsonPath().getList("$"),
-                itemId -> deleteItem(requestAs(seller), itemId.toString()).statusCode(200));
+                itemId -> deleteItem(requestAs(seller), itemId.toString())
+                        .statusCode(allowAlreadyDeleted ? anyOf(equalTo(200), equalTo(404)) : equalTo(200)));
     }
 
     private void checkRejectedCreation(SellerSession seller, String itemName, int expectedStatus,
@@ -576,9 +540,9 @@ public class AvitoApiTest {
         }
     }
 
-    private void checkRejectedCreationFixture(int status, List<String> firstList, List<String> secondList) {
+    private void checkApi11Fixture(int status, List<String> firstList, List<String> secondList) {
         assertAll("Результат создания объявления",
-                () -> assertTrue(status >= 400 && status < 500, "Ожидался отказ, получен HTTP " + status),
+                () -> assertEquals(400, status, "API-11 должен вернуть HTTP 400"),
                 () -> assertFalse(firstList.contains(REJECTION_FIXTURE_ITEM_NAME), "Запись появилась в первом списке"),
                 () -> assertFalse(secondList.contains(REJECTION_FIXTURE_ITEM_NAME), "Запись появилась во втором списке"));
     }
@@ -656,12 +620,10 @@ public class AvitoApiTest {
     private void checkStatisticsAccessDenied(int version, String token) {
         SellerSession seller = createSeller();
         CreateItemRequest item = testItem(seller, "QA стол " + seller.id());
-        String itemId = createItem(seller, item);
 
-        try {
+        try (ItemCleanup cleanup = cleanupFor(seller)) {
+            String itemId = createTrackedItem(cleanup, seller, item);
             checkStatisticsRejected(getStatistics(requestWithTestToken(token), version, itemId), 401);
-        } finally {
-            deleteItem(requestAs(seller), itemId).statusCode(200);
         }
     }
 }

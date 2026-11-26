@@ -26,10 +26,6 @@ final class ItemCleanup implements AutoCloseable {
         this.deleteItem = deleteItem;
     }
 
-    void track(UUID itemId) {
-        itemIds.add(itemId);
-    }
-
     void markDeleted(UUID itemId) {
         itemIds.remove(itemId);
     }
@@ -38,12 +34,17 @@ final class ItemCleanup implements AutoCloseable {
         itemNameToFind = itemName;
     }
 
+    void trackCreatedItem(UUID itemId) {
+        itemIds.add(itemId);
+        itemNameToFind = null;
+    }
+
     List<Map<String, Object>> readSellerItems() {
         List<Map<String, Object>> sellerItems = listItems.get();
         if (itemNameToFind != null) {
             for (Map<String, Object> item : sellerItems) {
                 if (itemNameToFind.equals(item.get("name")) && Integer.valueOf(sellerId).equals(item.get("sellerId"))) {
-                    track(UUID.fromString((String) item.get("id")));
+                    itemIds.add(UUID.fromString((String) item.get("id")));
                 }
             }
             itemNameToFind = null;

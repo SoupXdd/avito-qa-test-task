@@ -187,8 +187,8 @@
 ### 1. API-15
 **2. Название: Чтение с неверным форматом UUID**  
 **3. Предусловия:** Есть авторизованный продавец  
-**4. Шаг:** Выполнить `GET /api/1/item/{id}` со значением `not-a-uuid` вместо UUID  
-**5. Ожидаемый результат:** HTTP `400`, без данных объявления  
+**4. Шаг:** Выполнить `GET /api/1/item/{id}` отдельно для строки `not-a-uuid`, UUID на один символ короче и на один символ длиннее канонической записи, а также строки канонической длины с символом `g` вместо шестнадцатеричной цифры\
+**5. Ожидаемый результат:** Каждый запрос возвращает HTTP `400` без данных объявления\
 **6. Допущение:** Коллекция указывает `400` для этой ручки без примера ответа на неверный UUID
 
 ### 1. API-16
@@ -296,3 +296,34 @@
 **4. Шаг:** Три раза подряд вызвать `GET /api/1/item/{id}` с одним UUID и токеном владельца  
 **5. Ожидаемый результат:** Три ответа возвращают `200` и по одной записи. `id`, `sellerId`, `name` и `price` в каждом ответе совпадают с исходными данными  
 **6. Очистка:** Удалить объявление из предусловия
+
+## Соответствие автотестам
+
+Методы находятся в [AvitoApiTest](task2/src/test/java/qa/api/AvitoApiTest.java). Локальные проверки API-12 вынесены в отдельный класс.
+
+| Кейс | Метод или статус автоматизации |
+| --- | --- |
+| API-01 | `registerReturnCreatedUser` |
+| API-02 | `shouldRejectRegistrationWithDoubleRegistration` |
+| API-03 | `shouldRejectRegistrationWithoutUsername`, `shouldRejectRegistrationWithoutPassword`, `shouldRejectRegistrationWithEmptyUserName`, `shouldRejectRegistrationWithEmptyPassword` |
+| API-04 | `authReturnUser` |
+| API-05 | `shouldRejectAuthorizationWithWrongPassword`, `shouldRejectAuthorizationWithUnknownUsername` |
+| API-06 | `shouldRejectAuthorizationWithoutUsername`, `shouldRejectAuthorizationWithoutPassword` |
+| API-07, API-08 | Шесть методов `*WithoutValidToken`; каждый запускается без токена и с невалидным токеном |
+| API-09 | `shouldCreateAndReadItemById` |
+| API-10 | `shouldCreateSeparateItemsFromIdenticalRequests` |
+| API-11 | Локальные методы `*Api11Fixture*` проверяют HTTP `400` и отсутствие тестового названия на готовых данных. Сквозной сценарий открыт |
+| API-12 | [Api12FixtureTest](task2/src/test/java/qa/api/Api12FixtureTest.java) проверяет обе ветки на готовых данных. Для ветки отказа в фикстурах приняты `400`, `401` и `403`. Сквозной сценарий открыт |
+| API-13 | `shouldRejectInvalidItemCreation` |
+| API-14 | `shouldReturnNotFoundForMissingItem` |
+| API-15 | `shouldRejectItemLookupWithMalformedUuid` |
+| API-16 | `shouldListOnlyItemsOfRequestedSeller` |
+| API-17 | `shouldRejectSellerListWithNonNumericId` |
+| API-18 | `shouldReturnSavedStatisticsInBothVersions` |
+| API-19 | `shouldReturnNotFoundForMissingItemStatistics` |
+| API-20 | `shouldRejectStatisticsWithMalformedUuid` |
+| API-21 | `shouldDeleteOnlyRequestedItem`. `shouldReturnNotFoundForDeletedItemStatistics` отключен до уточнения контракта |
+| API-22 | `shouldReturnNotFoundWhenDeletingMissingItems` |
+| API-23 | `shouldRejectDeletionWithMalformedUuid` |
+| API-24 | `shouldPreserveCyrillicAndQuotesInItemName` |
+| API-25 | `shouldReturnSameItemOnRepeatedReads` |
