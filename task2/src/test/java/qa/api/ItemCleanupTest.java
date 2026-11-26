@@ -47,6 +47,65 @@ class ItemCleanupTest {
     }
 
     @Test
+    void shouldFindSecondItemWhenCreateReturnsTheFirstUuidAgain() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        List<UUID> deleted = new ArrayList<>();
+        List<Map<String, Object>> items = List.of(
+                Map.of("id", first.toString(), "sellerId", 101, "name", "QA table"),
+                Map.of("id", second.toString(), "sellerId", 101, "name", "QA table"));
+
+        try (ItemCleanup cleanup = new ItemCleanup(101, () -> items, deleted::add)) {
+            cleanup.findByNameOnClose("QA table");
+            cleanup.trackCreatedItem(first);
+            cleanup.findByNameOnClose("QA table");
+            cleanup.trackCreatedItem(first);
+        }
+
+        assertEquals(List.of(first, second), deleted);
+    }
+
+    @Test
+    void shouldDeleteValidMatchAfterMalformedUuid() {
+        UUID expected = UUID.randomUUID();
+        List<UUID> deleted = new ArrayList<>();
+        List<Map<String, Object>> items = List.of(
+                Map.of("id", "invalid", "sellerId", 101, "name", "QA table"),
+                Map.of("id", expected.toString(), "sellerId", 101, "name", "QA table"));
+
+        ItemCleanup cleanup = new ItemCleanup(101, () -> items, deleted::add);
+        cleanup.findByNameOnClose("QA table");
+
+        assertThrows(AssertionError.class, cleanup::close);
+        assertEquals(List.of(expected), deleted);
+    }
+
+    @Test
+    void shouldCleanUpAdditionalOwnedItemWhenCountCheckFails() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID extra = UUID.randomUUID();
+        UUID otherSellerItem = UUID.randomUUID();
+        List<UUID> deleted = new ArrayList<>();
+        List<Map<String, Object>> items = List.of(
+                Map.of("id", first.toString(), "sellerId", 101, "name", "QA table"),
+                Map.of("id", second.toString(), "sellerId", 101, "name", "QA table"),
+                Map.of("id", extra.toString(), "sellerId", 101, "name", "QA table"),
+                Map.of("id", otherSellerItem.toString(), "sellerId", 202, "name", "QA table"));
+
+        assertThrows(AssertionError.class, () -> {
+            try (ItemCleanup cleanup = new ItemCleanup(101, () -> items, deleted::add)) {
+                cleanup.trackCreatedItem(first);
+                cleanup.trackCreatedItem(second);
+                cleanup.findByNameOnClose("QA table");
+                assertEquals(2, cleanup.readSellerItems().size(), "Expected only the two requested items");
+            }
+        });
+
+        assertEquals(List.of(first, second, extra), deleted);
+    }
+
+    @Test
     void shouldKeepTheOriginalFailureAndAttemptEveryDeletion() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();

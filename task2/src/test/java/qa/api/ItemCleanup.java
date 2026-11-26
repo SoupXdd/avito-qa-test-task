@@ -35,19 +35,27 @@ final class ItemCleanup implements AutoCloseable {
     }
 
     void trackCreatedItem(UUID itemId) {
-        itemIds.add(itemId);
-        itemNameToFind = null;
+        if (itemIds.add(itemId)) {
+            itemNameToFind = null;
+        }
     }
 
     List<Map<String, Object>> readSellerItems() {
         List<Map<String, Object>> sellerItems = listItems.get();
         if (itemNameToFind != null) {
-            for (Map<String, Object> item : sellerItems) {
-                if (itemNameToFind.equals(item.get("name")) && Integer.valueOf(sellerId).equals(item.get("sellerId"))) {
-                    itemIds.add(UUID.fromString((String) item.get("id")));
-                }
-            }
+            String itemName = itemNameToFind;
             itemNameToFind = null;
+            assertAll("Find test items for cleanup", sellerItems.stream().<Executable>map(item -> () -> {
+                if (item != null && itemName.equals(item.get("name"))
+                        && Integer.valueOf(sellerId).equals(item.get("sellerId"))) {
+                    String id = (String) item.get("id");
+                    UUID uuid = UUID.fromString(id);
+                    if (!uuid.toString().equalsIgnoreCase(id)) {
+                        throw new IllegalArgumentException("Noncanonical UUID in a test item");
+                    }
+                    itemIds.add(uuid);
+                }
+            }));
         }
         return sellerItems;
     }

@@ -4,15 +4,18 @@ import io.restassured.mapper.ObjectMapperType;
 import io.restassured.response.ValidatableResponse;
 import io.restassured.specification.RequestSpecification;
 
-import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import static org.hamcrest.Matchers.isEmptyOrNullString;
-import static org.hamcrest.Matchers.not;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static qa.api.AvitoRequests.requestAs;
 
 final class ItemClient {
+
+    private static final Pattern ITEM_UUID = Pattern.compile(
+            "\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+            Pattern.CASE_INSENSITIVE);
 
     private ItemClient() {
     }
@@ -32,16 +35,20 @@ final class ItemClient {
     }
 
     static String createItem(SellerSession seller, CreateItemRequest item) {
-        String status = postItem(requestAs(seller), item)
+        Object status = postItem(requestAs(seller), item)
                 .statusCode(200)
-                .body("status", not(isEmptyOrNullString()))
                 .extract()
                 .path("status");
-        String[] parts = status.split(" - ", 2);
-        assertEquals(2, parts.length, "Expected an item UUID after ' - ' in status");
 
-        String id = parts[1];
-        assertTrue(UUID.fromString(id).toString().equalsIgnoreCase(id), "Invalid item UUID: " + id);
+        assertTrue(status instanceof String, "Expected a string status in the creation response");
+        return itemIdFromStatus((String) status);
+    }
+
+    static String itemIdFromStatus(String status) {
+        Matcher matches = ITEM_UUID.matcher(status);
+        assertTrue(matches.find(), "No item UUID in the creation status");
+        String id = matches.group();
+        assertFalse(matches.find(), "Multiple item UUIDs in the creation status");
         return id;
     }
 

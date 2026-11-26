@@ -5,7 +5,7 @@ on:
     branches: [master]
     paths:
       - .github/workflows/api-tests.yml
-      - task2/src/test/java/qa/api/**
+      - task2/src/**
       - task2/config/**
       - task2/*.gradle
       - task2/gradle/**
@@ -72,6 +72,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          from collections import Counter
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -86,6 +87,18 @@ jobs:
                   print(f"\n{counts['total']} total, {counts['passed']} passed, "
                         f"{counts['failed']} failed, {counts['broken']} broken, "
                         f"{counts['skipped']} skipped.", file=output)
+                  local = Counter()
+                  live = Counter()
+                  for path in Path("build/allure-results").glob("*-result.json"):
+                      result = json.loads(path.read_text(encoding="utf-8"))
+                      class_name, _, method = result["fullName"].rpartition(".")
+                      group = live if class_name == "qa.api.AvitoApiTest" and "Api11Fixture" not in method else local
+                      group[result["status"]] += 1
+                  print("\n| Group | Passed | Failed | Broken | Skipped |", file=output)
+                  print("| --- | ---: | ---: | ---: | ---: |", file=output)
+                  for label, group in (("Live scenarios", live), ("Local checks", local)):
+                      cells = " | ".join(str(group[status]) for status in ("passed", "failed", "broken", "skipped"))
+                      print(f"| {label} | {cells} |", file=output)
               if link := os.environ.get("ARTIFACT_URL"):
                   print(f"\n[Download Allure and Gradle results]({link})", file=output)
           PY
