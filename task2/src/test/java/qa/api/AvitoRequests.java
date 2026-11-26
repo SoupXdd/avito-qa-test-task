@@ -14,8 +14,8 @@ import static io.restassured.RestAssured.given;
 
 final class AvitoRequests {
 
-    private static final int CONNECT_TIMEOUT_MS = 10_000;
-    private static final int READ_TIMEOUT_MS = 30_000;
+    private static final int CONNECT_TIMEOUT_MS = timeoutMillis("QA_API_CONNECT_TIMEOUT_MS", 10_000);
+    private static final int READ_TIMEOUT_MS = timeoutMillis("QA_API_READ_TIMEOUT_MS", 30_000);
 
     private static final RequestSpecification REQUEST_SPEC = new RequestSpecBuilder()
             .setBaseUri("https://qa-internship.avito.com")
@@ -39,6 +39,18 @@ final class AvitoRequests {
             .build();
 
     private AvitoRequests() {
+    }
+
+    private static int timeoutMillis(String variable, int defaultValue) {
+        String value = System.getenv(variable);
+        if (value == null) {
+            return defaultValue;
+        }
+        int timeout = Integer.parseInt(value);
+        if (timeout <= 0) {
+            throw new IllegalArgumentException(variable + " must be a positive timeout in milliseconds");
+        }
+        return timeout;
     }
 
     static RequestSpecification request() {

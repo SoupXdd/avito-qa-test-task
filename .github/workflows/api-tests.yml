@@ -40,6 +40,9 @@ jobs:
 
       - name: Run API tests
         id: tests
+        env:
+          QA_API_CONNECT_TIMEOUT_MS: '20000'
+          QA_API_READ_TIMEOUT_MS: '60000'
         run: ./gradlew --no-daemon apiTest
 
       - name: Build Allure report
@@ -72,6 +75,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import xml.etree.ElementTree as ET
           from collections import Counter
           from datetime import datetime, timezone
           from pathlib import Path
@@ -99,6 +103,20 @@ jobs:
                   for label, group in (("Live scenarios", live), ("Local checks", local)):
                       cells = " | ".join(str(group[status]) for status in ("passed", "failed", "broken", "skipped"))
                       print(f"| {label} | {cells} |", file=output)
+              timeouts = {
+                  "org.apache.http.conn.ConnectTimeoutException": "connection timeout",
+                  "java.net.SocketTimeoutException": "socket timeout",
+              }
+              errors = []
+              for path in sorted(Path("build/test-results/apiTest").glob("TEST-*.xml")):
+                  for case in ET.parse(path).getroot().findall("testcase"):
+                      for result in (*case.findall("failure"), *case.findall("error")):
+                          kind = result.get("type", "Unknown exception")
+                          errors.append((case.attrib["name"], timeouts.get(kind, kind)))
+              if errors:
+                  print("\n#### Tests with errors", file=output)
+                  for name, reason in errors:
+                      print(f"- `{name}` — {reason}", file=output)
               if link := os.environ.get("ARTIFACT_URL"):
                   print(f"\n[Download Allure and Gradle results]({link})", file=output)
           PY

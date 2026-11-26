@@ -23,7 +23,7 @@ Gradle Wrapper скачает зависимости. Тесты регистр�
 | Параметр | Значение |
 | --- | --- |
 | Стенд | `https://qa-internship.avito.com` |
-| Таймауты | 10 с на подключение, 30 с на чтение |
+| Таймауты | Локально 10 с на подключение и 30 с на чтение. В CI 20 с и 60 с |
 | Отчёт Gradle | `task2/build/reports/tests/apiTest/index.html` |
 | Стек | Java 21, JUnit 5, Rest Assured, Gradle, Allure |
 
@@ -88,7 +88,7 @@ Gradle Wrapper скачает зависимости. Тесты регистр�
 
 Открой **Actions → API Tests → Run workflow**. На `master` запуск также срабатывает при изменении исходников, конфигурации или файлов сборки `task2`, а также самого workflow. В том же запуске проверяется стиль Java.
 
-В **Summary** скачай архив `api-results-…` и открой `reports/allure-single/index.html`. В архив также входят HTML-отчёт Gradle и JUnit XML. При падении шаг сборки отчёта использует доступные результаты, а запуск сохраняет статус ошибки. [Workflow API Tests](.github/workflows/api-tests.yml)
+В **Summary** скачай архив `api-results-…` и открой `reports/allure-single/index.html`. В архив также входят HTML-отчёт Gradle и JUnit XML. При падении запуск сохраняет статус ошибки, а в сводке видны тест и тип исключения. Allure показывает HTTP-шаг, на котором произошёл сбой. [Workflow API Tests](.github/workflows/api-tests.yml)
 
 ## Стиль Java
 
