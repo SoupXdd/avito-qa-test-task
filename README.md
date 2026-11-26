@@ -36,6 +36,7 @@ Gradle Wrapper скачает зависимости. Тесты регистр�
   --tests 'qa.api.ApiErrorBodyTest' \
   --tests 'qa.api.AuthClientTest' \
   --tests 'qa.api.ItemClientTest' \
+  --tests 'qa.api.AvitoRequestsTest' \
   --tests 'qa.api.Api12FixtureTest' \
   --tests 'qa.api.AvitoApiTest.*Api11Fixture*'
 ```
@@ -89,6 +90,8 @@ Gradle Wrapper скачает зависимости. Тесты регистр�
 Открой **Actions → API Tests → Run workflow**. На `master` запуск также срабатывает при изменении исходников, конфигурации или файлов сборки `task2`, а также самого workflow. В том же запуске проверяется стиль Java.
 
 В **Summary** скачай архив `api-results-…` и открой `reports/allure-single/index.html`. В архив также входят HTML-отчёт Gradle и JUnit XML. При падении запуск сохраняет статус ошибки, а в сводке видны тест и тип исключения. Allure показывает HTTP-шаг, на котором произошёл сбой. [Workflow API Tests](.github/workflows/api-tests.yml)
+
+При сетевом таймауте внутри HTTP-клиента в CI запрос `GET` может повториться один раз. Повтор виден как шаг в Allure. Ответы сервера и запросы `POST` и `DELETE` этому правилу не подлежат.
 
 ## Стиль Java
 
