@@ -13,15 +13,22 @@ class AvitoRequestsTest {
 
     @Test
     void shouldRetryFirstGetAfterNetworkTimeout() {
-        assertTrue(AvitoRequests.shouldRetry("GET", new ConnectTimeoutException(), 1));
-        assertTrue(AvitoRequests.shouldRetry("GET", new SocketTimeoutException(), 1));
+        assertTrue(AvitoRequests.shouldRetry("GET", new ConnectTimeoutException(), 1, true));
+        assertTrue(AvitoRequests.shouldRetry("GET", new SocketTimeoutException(), 1, false));
     }
 
     @Test
-    void shouldStopAfterRetryAndNeverRepeatWrites() {
-        assertFalse(AvitoRequests.shouldRetry("GET", new SocketTimeoutException(), 2));
-        assertFalse(AvitoRequests.shouldRetry("GET", new UnknownHostException(), 1));
-        assertFalse(AvitoRequests.shouldRetry("POST", new SocketTimeoutException(), 1));
-        assertFalse(AvitoRequests.shouldRetry("DELETE", new ConnectTimeoutException(), 1));
+    void shouldRetryConnectionTimeoutBeforeAttemptingToSendAWrite() {
+        assertTrue(AvitoRequests.shouldRetry("POST", new ConnectTimeoutException(), 1, true));
+        assertTrue(AvitoRequests.shouldRetry("DELETE", new ConnectTimeoutException(), 1, true));
+        assertFalse(AvitoRequests.shouldRetry("POST", new ConnectTimeoutException(), 2, true));
+    }
+
+    @Test
+    void shouldStopAfterRetryAndNeverResendWrites() {
+        assertFalse(AvitoRequests.shouldRetry("GET", new SocketTimeoutException(), 2, false));
+        assertFalse(AvitoRequests.shouldRetry("GET", new UnknownHostException(), 1, true));
+        assertFalse(AvitoRequests.shouldRetry("POST", new SocketTimeoutException(), 1, false));
+        assertFalse(AvitoRequests.shouldRetry("DELETE", new ConnectTimeoutException(), 1, false));
     }
 }

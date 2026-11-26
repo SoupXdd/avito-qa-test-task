@@ -11,6 +11,7 @@ import org.apache.http.HttpRequest;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.ConnectTimeoutException;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.RequestWrapper;
 
 import java.io.IOException;
 import java.net.URI;
@@ -22,7 +23,7 @@ final class AvitoRequests {
 
     private static final int CONNECT_TIMEOUT_MS = timeoutMillis("QA_API_CONNECT_TIMEOUT_MS", 10_000);
     private static final int READ_TIMEOUT_MS = timeoutMillis("QA_API_READ_TIMEOUT_MS", 30_000);
-    private static final String RETRIED_GET = "qa.api.retriedGet";
+    private static final String RETRIED_REQUEST = "qa.api.retriedRequest";
 
     private static final RequestSpecification REQUEST_SPEC = new RequestSpecBuilder()
             .setBaseUri("https://qa-internship.avito.com")
@@ -50,7 +51,7 @@ final class AvitoRequests {
         HttpClientConfig config = HttpClientConfig.httpClientConfig()
                 .setParam("http.connection.timeout", CONNECT_TIMEOUT_MS)
                 .setParam("http.socket.timeout", READ_TIMEOUT_MS);
-        if (!Boolean.parseBoolean(System.getenv("QA_API_RETRY_GET"))) {
+        if (!Boolean.parseBoolean(System.getenv("QA_API_RETRY_TIMEOUTS"))) {
             return config;
         }
         return config.httpClientFactory(() -> {
@@ -58,20 +59,24 @@ final class AvitoRequests {
             client.setHttpRequestRetryHandler((failure, attempt, context) -> {
                 HttpRequest request = HttpClientContext.adapt(context).getRequest();
                 String method = request == null ? "" : request.getRequestLine().getMethod();
-                if (Boolean.TRUE.equals(context.getAttribute(RETRIED_GET)) || !shouldRetry(method, failure, attempt)) {
+                // The legacy client increments the execution count before attempting to send the request.
+                boolean beforeExecution = request instanceof RequestWrapper wrapper && wrapper.getExecCount() == 0;
+                if (Boolean.TRUE.equals(context.getAttribute(RETRIED_REQUEST))
+                        || !shouldRetry(method, failure, attempt, beforeExecution)) {
                     return false;
                 }
-                context.setAttribute(RETRIED_GET, true);
-                Allure.step("Retry GET after " + failure.getClass().getSimpleName());
+                context.setAttribute(RETRIED_REQUEST, true);
+                Allure.step("Retry " + method + " after " + failure.getClass().getSimpleName());
                 return true;
             });
             return client;
         });
     }
 
-    static boolean shouldRetry(String method, IOException failure, int attempt) {
-        return attempt == 1 && "GET".equals(method)
-                && (failure instanceof ConnectTimeoutException || failure instanceof SocketTimeoutException);
+    static boolean shouldRetry(String method, IOException failure, int attempt, boolean beforeExecution) {
+        return attempt == 1 && ((beforeExecution && failure instanceof ConnectTimeoutException)
+                || ("GET".equals(method)
+                && (failure instanceof ConnectTimeoutException || failure instanceof SocketTimeoutException)));
     }
 
     private static int timeoutMillis(String variable, int defaultValue) {

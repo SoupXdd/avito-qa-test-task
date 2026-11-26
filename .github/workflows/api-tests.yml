@@ -43,7 +43,7 @@ jobs:
         env:
           QA_API_CONNECT_TIMEOUT_MS: '20000'
           QA_API_READ_TIMEOUT_MS: '60000'
-          QA_API_RETRY_GET: 'true'
+          QA_API_RETRY_TIMEOUTS: 'true'
         run: ./gradlew --no-daemon apiTest
 
       - name: Build Allure report
