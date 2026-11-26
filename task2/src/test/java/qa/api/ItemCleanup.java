@@ -44,7 +44,6 @@ final class ItemCleanup implements AutoCloseable {
         List<Map<String, Object>> sellerItems = listItems.get();
         if (itemNameToFind != null) {
             String itemName = itemNameToFind;
-            itemNameToFind = null;
             assertAll("Find test items for cleanup", sellerItems.stream().<Executable>map(item -> () -> {
                 if (item != null && itemName.equals(item.get("name"))
                         && Integer.valueOf(sellerId).equals(item.get("sellerId"))) {
@@ -56,6 +55,7 @@ final class ItemCleanup implements AutoCloseable {
                     itemIds.add(uuid);
                 }
             }));
+            itemNameToFind = null;
         }
         return sellerItems;
     }

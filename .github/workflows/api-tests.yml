@@ -102,3 +102,7 @@ jobs:
               if link := os.environ.get("ARTIFACT_URL"):
                   print(f"\n[Download Allure and Gradle results]({link})", file=output)
           PY
+
+      - name: Check Java style
+        if: ${{ !cancelled() }}
+        run: ./gradlew --no-daemon spotlessCheck checkstyleTest

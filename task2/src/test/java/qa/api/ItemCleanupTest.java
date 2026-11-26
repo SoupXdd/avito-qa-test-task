@@ -1,13 +1,16 @@
 package qa.api;
 
 import org.junit.jupiter.api.Test;
+import org.opentest4j.MultipleFailuresError;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -78,6 +81,32 @@ class ItemCleanupTest {
 
         assertThrows(AssertionError.class, cleanup::close);
         assertEquals(List.of(expected), deleted);
+    }
+
+    @Test
+    void shouldSearchAgainOnCloseWhenTheFirstScanFails() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        List<UUID> deleted = new ArrayList<>();
+        Map<String, Object> firstItem = Map.of("id", first.toString(), "sellerId", 101, "name", "QA table");
+        Map<String, Object> malformedItem = Map.of("id", "invalid", "sellerId", 101, "name", "QA table");
+        Map<String, Object> secondItem = Map.of("id", second.toString(), "sellerId", 101, "name", "QA table");
+        AtomicInteger reads = new AtomicInteger();
+
+        MultipleFailuresError reported = assertThrows(MultipleFailuresError.class, () -> {
+            try (ItemCleanup cleanup = new ItemCleanup(101,
+                    () -> reads.getAndIncrement() == 0
+                            ? List.of(firstItem, malformedItem) : List.of(firstItem, secondItem),
+                    deleted::add)) {
+                cleanup.findByNameOnClose("QA table");
+                cleanup.readSellerItems();
+            }
+        });
+
+        assertEquals(1, reported.getFailures().size());
+        assertInstanceOf(IllegalArgumentException.class, reported.getFailures().getFirst());
+        assertEquals(2, reads.get());
+        assertEquals(List.of(first, second), deleted);
     }
 
     @Test
