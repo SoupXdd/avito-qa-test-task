@@ -167,8 +167,8 @@ public class AvitoApiTest {
             checkSavedStatistics(getStatistics(requestAs(seller), 2, itemId), item.statistics(), false);
 
             deleteItem(requestAs(seller), itemId).statusCode(200);
-            cleanup.markDeleted(itemUuid);
             checkItemLookupRejected(getItem(requestAs(seller), itemId), 404);
+            cleanup.markDeleted(itemUuid);
         }
     }
 
